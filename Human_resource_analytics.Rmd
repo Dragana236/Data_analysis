@@ -1,0 +1,558 @@
+---
+title: "Human Resources Analytics in R"
+author: "Dragana Pavlovic"
+date: "June 12, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r packages, include=FALSE}
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(broom)
+```
+
+##Introduction
+Human resources analytics, also known as people analytics is a data-driven approach to managing people at work. It's goal is to understande employee's needs, improve employee safety, understand and improve employee fairness and diversity, identify drivers of employee attrition but also identify the best recruiting source and check if the workloads of employees are accomplished.
+
+Here, I will be using eight datasets, and answer the questions: which recruiting source is the best, what is driving low employee engagement, are new hires getting paid too much, are performance ratings being given consistently, and try to mprove employee safety with data. 
+
+Also, I will use pakckages from tidyverse, such as: readr, tidyr, dplyr and ggplot.
+
+
+##Which recruiting source is the best?
+
+###Importing data
+
+
+```{r importing}
+recruitment <- read_csv("recruitment_data.csv")
+head(recruitment)
+
+```
+
+Here we see four coulumns: attrition which is metric of how often hires leave the company, performance rating - performance on scale from 1 to 5, sales_quota_pct - how much a salesperson sold last year relative to their quota and recruiting_source - through which source employees were hired.
+
+
+### Analyzing data
+
+A general process for HR analytics is to first identify the groups to compare, calculate summary statistics about those groups and plot or test the differences between those groups.
+
+Now I will try to find the best recuriting source that produces the best hires.
+
+We will begin with examining recruiting channels in the data. Good ideas is to find out nubers of hires per each distinct recruting source. 
+
+```{r exam1}
+recruitment %>% 
+  count(recruiting_source)
+
+```
+
+We see that some employees don't have recruting source.
+
+Since we are interested in which recruiting channel produces the best salespeople we can use metric sales quota attainment or how much a salesperson sold last year relative to their quota. 
+
+```{r quota}
+avg_sales <- recruitment %>%
+  group_by(recruiting_source) %>% 
+  summarize(avg_sales_quota_pct = mean(sales_quota_pct)) %>%
+  arrange(desc(avg_sales_quota_pct))
+avg_sales
+
+```
+
+
+Another metric that we can consider is attrition rate or how often hires leave the company.
+
+```{r attrition}
+avg_attrition <- recruitment %>%
+  group_by(recruiting_source) %>% 
+  summarize(attrition_rate = mean(attrition)) %>% 
+  arrange(desc(attrition_rate))
+avg_attrition
+```
+
+
+The last step in the HR analytics process is to test and plot the results. 
+
+
+```{r plots}
+ggplot(avg_sales, aes(x = recruiting_source, y = avg_sales_quota_pct)) +
+  geom_col()
+
+ggplot(avg_attrition, aes(x = recruiting_source, y = attrition_rate)) +
+  geom_col()
+```
+
+From plots we can see that those who found firm  has the lowest average sales quota and most often leaves the firm, while candidates that Applied online have the highest average sales quota and leaves the company less, if we don't consider NA. Therefore, we can conclude that the best recruiting system is through applying online, while the worst through searching by firm.
+
+##What is driving low employee engagement?
+
+It is believed that those employees that are involved in, enthusiastic about and commited to their work and workplace better performer. This is usually measured with a survey, bur behavioral data can be used as well.
+
+Here, I will investigate the link  between engagement and business outcomes. 
+
+###Importing the data
+
+```{r importing1}
+survey <- read_csv("survey_data.csv")
+survey
+```
+
+The columns are self-descriptive. Coumn engagement contains information about how much every employee is engaged on scale from 1 to 5, where 1 is the least engaged and 5 the most. 
+
+###Analyzing data
+
+
+```{r exam}
+survey %>% 
+  count(department)
+
+
+survey %>%
+  group_by(department) %>%
+  summarize(avg_engagement = mean(engagement)) %>%
+  arrange(desc(avg_engagement))
+```
+
+We can see that sales deparment has the lowest engagement. 
+
+We will create a column to identify which employees are disangaged by assigning 0 if their score is 1 or 2 so that we can compare another factors.
+
+
+```{r engagement}
+survey_disengaged <- survey %>% 
+  mutate(disengaged = ifelse(engagement <= 2, 1, 0)) 
+survey_disengaged
+
+
+survey_summary <- survey_disengaged %>% 
+  group_by(department) %>% 
+  summarize(pct_disengaged = mean(disengaged),
+            avg_salary = mean(salary),
+            avg_vacation_days = mean(vacation_days_taken))
+survey_summary
+```
+
+Next we are going to compare the percenage of disangeged, average salary and avarage of taken days and to visualize these variables. 
+
+```{r summary}
+survey_summary <- survey_disengaged %>% 
+  group_by(department) %>% 
+  summarize(pct_disengaged = mean(disengaged),
+            avg_salary = mean(salary),
+            avg_vacation_days = mean(vacation_days_taken))
+survey_summary
+
+
+
+survey_gathered <- survey_summary %>% 
+  gather(key = "measure", value = "value",
+         pct_disengaged, avg_salary, avg_vacation_days)
+survey_gathered
+
+ggplot(survey_gathered, aes(measure, value, fill = department)) +
+  geom_col(position = "dodge") +
+  facet_wrap(~ measure, scales = "free")
+```
+
+From the graphs we can see that sales deprtment has the lowest engagement. When we look at other variables we see that this deparment has fewest average vacation days taken.
+
+However to prove that this difference is significant we will have to use statistical test. To test the hypothesis that the sales department has the same proportion of disengaged employees as the rest of the company we are going to use chi-squared test. This test is alternative to t-test but it is used when the variables are categorical.
+
+
+```{r test}
+survey_sales <- survey %>%
+  mutate(in_sales = ifelse(department == "Sales", "Sales", "Other"))%>%
+  mutate(disengaged = ifelse(engagement <= 2, 1, 0)) 
+
+
+
+chisq.test(survey_sales$in_sales, survey_sales$disengaged)
+```
+Since the p-value is less than 0.05 we can say that this test result is significant.
+
+Now we are going to test the hypothesis that employees in the sales department took fewer vacation days, on average, than the rest of the company.
+
+In this case we are going to use t-test since the variables that we compare are continuous.
+
+```{r test6}
+t.test(vacation_days_taken ~ in_sales, data = survey_sales)
+```
+At the 0.05 level the test result is significant.
+
+At the end we can conclude that sales department is less engaged and that is takes fewer vacation days than other deprtments. But other investigation are necessary to find out what causes sales department to be less engaged and to take fewer vacation days. 
+
+
+##Are new hires getting paid too much?
+
+Sometimes the company increases offered salary to make the job more attractive. In a dataset 'pay' we will find out whether new hires are getting paid more than current employees.
+
+
+###Importing data
+
+
+```{r importing3}
+pay <- read_csv("fair_pay.csv")
+head(pay)
+```
+
+###Inspecting and analyzing data
+
+```{r inspecting}
+pay %>% 
+  group_by(new_hire) %>% 
+  summarize(avg_salary = mean(salary))
+```
+
+From this output we can see that new hires on average gets more paid. 
+
+To prove if this difference is significant we will use t-test.
+
+
+```{r test7}
+library(broom)
+t.test(salary ~ new_hire, data = pay) %>%
+  tidy()
+```
+
+The result of the test at the 0.05 level is significant. In another words there is a significant difference in salary.
+
+However a problem that can occurs is ommited variable bias. Omitted variable bias occurs when an omitted variable is correlated with the dependent variable, and the way the groups are divided. A good way to inSpect this is visualizing it. In particular, by using 100% stacked bar chart which are perfect when we are more interested in the group composition than the actual number of employees in each group. 
+
+```{r plot}
+pay %>% 
+  ggplot(aes(x = new_hire, fill = job_level)) +
+  geom_bar(position = "fill")
+```
+
+It appears that the job level mix is different for new hires. New hires are less likely to be hourly employees, and more likely to be salaried or managers. 
+
+
+```{r in}
+pay_grouped <- pay %>% 
+  group_by(new_hire, job_level) %>% 
+  summarize(avg_salary = mean(salary))
+pay_grouped
+
+
+pay_grouped %>%
+  ggplot(aes(x = new_hire, y = avg_salary)) +
+  geom_col() +
+  facet_wrap(~ job_level)
+```
+
+From the plot we made the bars were nearly equal. This supports the idea that an omitted variable - job level - is driving the difference in pay for new hires and current employees. 
+
+However, the graph shows a small difference in the average salaries for hourly workers. We are going to test whether a significant pay difference exists between hourly new hires and hourly current employees.
+
+In the plot we made, the bars were nearly equal. This supports the idea that an omitted variable - job level - is driving the difference in pay for new hires and current employees. 
+
+```{r ine}
+pay_filter <- pay %>%
+  filter(job_level == "Hourly")
+
+t.test(salary ~ new_hire, data = pay_filter) %>%
+  tidy()
+```
+
+Since the test is not significant at the 0.05 level we can say that hourly new hires are not paid more than old hourly hires.
+
+We have seen that the difference in salary between new hires and current employees seemed to disappear when another variable was taken into account. 
+
+We could have used multiple linear regression to test the significance of the difference between 2 groups while taking one or more other factors, such as omitted variables into account.
+
+
+```{r iner}
+model_multiple <- lm(salary ~ new_hire + job_level, data = pay)
+model_multiple%>%
+  tidy()
+```
+
+since we're testing the effect that being a new hire has on salary we will use p-value from new_hireYes row. Since it is higher than 0.05 we can say that new hire are not payed significantly higher in this model. 
+
+New hires are being paid about the same as current employees when job level is considered.
+
+However if we take into account deparments - the results of tests are different.
+
+
+```{r inerr}
+model_multiple <- lm(salary ~ new_hire + department, data = pay)
+model_multiple%>%
+  tidy()
+```
+
+Here since p-value is lower than 0.05 we can say that new hire are payed significantly higher in this model. 
+
+Therefore we can conclude that that depending on variable that we take into account the result of test depends in that way. 
+
+New hires are being paid about the same as current employees when job level is considered, but paid less if deparments are included.
+
+##Are performance ratings being given consistently?
+
+Performance management helps an organization keep track of which employees are providing extra value, or below-average value, and compensating them accordingly. However cheching performance is sometimes subjective (individual managers' preferences, or even biases - conscious or subconscious).
+
+###Importing and joining datasets
+
+Usually the data (depending on the type of informatons that contains) is splitted in different tables.
+Here we will be working with 2 datasets which we will join into one table. 
+
+```{r importing2}
+hr_data <- read_csv("hr_data.csv")
+head(hr_data)
+performance_data <- read_csv("performance_data.csv")
+head(performance_data)
+
+joined_data <- left_join(hr_data, performance_data, by = "employee_id")
+head(joined_data)
+```
+
+
+###Analyzing
+
+
+We are interested in whether average performance rating differs by gender.
+```{r anal}
+joined_data %>%
+  group_by(gender) %>%
+  summarize(avg_rating = mean(rating))
+```
+
+
+It seems like male has better average performance ratings, but we should investigate if this difference is significant.
+
+```{r anal1}
+performance <- joined_data %>%  
+  mutate(high_performer = ifelse(rating >= 4, 1, 0))
+performance
+```
+
+Now we are going to test whether one gender is more likely to be a higher performer. 
+
+```{r test1}
+chisq.test(performance$gender, performance$high_performer)%>% 
+  tidy()
+```
+
+Since the p-value is less than 0.05 difference between performers is significant. 
+
+###Visualizing difference
+
+```{r vis9}
+performance %>%
+  ggplot(aes(gender, fill = factor(high_performer))) +
+  geom_bar(position = "fill")  
+```
+
+From graph we can see that males are higher performers.
+
+To create a more detailed graph we can use ratings variable.
+
+```{r vis1}
+performance %>%
+  ggplot(aes(gender, fill = factor(rating))) +
+  geom_bar(position = "fill")
+```
+
+
+The visualizations match what we found in the statistical test.
+However we need to check for omitted variable bias. Employees at higher job levels in the organization are more likely to be considered high performers. 
+
+First, we are going to check the difference in job level distribution by gender.
+
+
+```{r vis5}
+performance %>%
+  ggplot(aes(x = gender, fill = job_level)) +
+  geom_bar(position = "fill")
+```
+
+
+```{r vis8}
+chisq.test(performance$gender, performance$job_level)
+```
+
+
+Finally we are going to visualize 
+
+```{r vis2}
+performance %>% 
+  ggplot(aes(x = gender, fill = factor(high_performer))) +
+  geom_bar(position = "fill") +
+  facet_wrap(~ job_level)
+```
+
+Logistic regression fits a binary dependent variable. We'll need to use logistic regression to test whether men are statistically more likely to be labeled high performers in this dataset, even when job level is taken into account.
+
+We are going to test if women are less likely to be labeled a high performer, even when taking differences in job level into account.
+
+
+```{r vis3}
+logistic_multiple <- glm(high_performer ~ gender + job_level, family = "binomial", data = performance)
+logistic_multiple%>%
+  tidy()
+```
+
+Since the p-value is less than 0.05 we can say that difference is statistically significant.
+
+We can conclude that even when differences in job levels are taken into account, women are less likely to be labeled high performers than men in this dataset.
+
+##Improving employee safety with data
+
+Let's say that we know that workplace accidents have increased this past year at the production sites. We have to find out if that's true, and if it is, to look into what might be driving the increase.
+
+
+###Importing and joining datasets
+
+
+```{r importingh}
+hr_data <- read_csv("hr_2.csv")
+accident_data <- read_csv("accident_data.csv")
+head(hr_data)
+head(accident_data)
+hr_joined <- left_join(hr_data, accident_data, by = c("employee_id", "year")) 
+head(hr_joined)
+```
+
+Since many employee didn't have accident these values are represented as NAs. To distinguish these values we will mark NAs with 0, and any other with 1.
+
+```{r mutate}
+hr_joined <- hr_joined%>%
+  mutate(had_accident = ifelse(is.na(accident_type), 0, 1))
+```
+
+
+We will begin with answering on question if the accident rate increase from 2016 to 2017?
+
+
+```{r importingg}
+hr_joined %>% 
+  group_by(year) %>% 
+  summarize(accident_rate = mean(had_accident))
+```
+
+
+We will use chisq.test to test difference in accident rate between years.
+
+
+```{r tesm}
+chisq.test(hr_joined$year, hr_joined$had_accident)
+```
+
+Test proves that accidents has significantly increase in 2017 at the 0.05 level. 
+
+We can find which location had the highest rate of accidents.
+
+```{r tes}
+hr_joined %>% 
+  group_by(location) %>%  
+  summarize(accident_rate = mean(had_accident)) %>% 
+  arrange(desc(accident_rate))
+```
+
+Now we will focus on location where the accident rate increased most from last year. 
+
+```{r te}
+accident_rates <- hr_joined %>% 
+  group_by(location, year) %>% 
+  summarize(accident_rate = mean(had_accident))
+accident_rates
+
+
+accident_rates %>% 
+  ggplot(aes(factor(year), accident_rate)) +
+  geom_col() +
+  facet_wrap(~location)
+```
+
+
+We can observe that Southfield had the biggest increase of accidents.
+
+Because Southfield was the location where the accident increased the most from 2016 to 2017, we should investigate what else changed there.
+
+
+We also have overtime column, and the first thing on our mind can be overworked employees are more likely to make mistakes that lead to accidents. Therefore, we can compare average overtime hours worked in each year.
+
+
+
+```{r tas}
+southfield <- hr_joined %>% 
+  filter(location == "Southfield")
+
+southfield %>%
+  group_by(year) %>% 
+  summarize(average_overtime_hours = mean(overtime_hours))
+```
+
+We will use t-test to test whether the average of overtime hours worked was higher in either year.
+
+
+```{r tb}
+t.test(overtime_hours ~ year, data = southfield)
+```
+However difference in overtime hours is not significant at 0.05 level.
+
+Since overtime hours didn't have a significant change between the years, we should see what other variables we can check. We can check details about engagement of each employee. Engagement is stored in different dataset so we will join these two. 
+
+
+```{r ct}
+survey_data <- read_csv("survey_2.csv")
+safety <- left_join(hr_joined, survey_data, by = c("year", "employee_id")) %>% 
+  mutate(disengaged = ifelse(engagement <= 2, 1, 0), 
+         year = factor(year))
+
+safety_southfield <- safety %>% 
+  filter(location == "Southfield")
+```
+
+
+We can see if employee engagement could be an omitted variable that would explain the difference in the annual accident rates.
+
+
+We can test whether employee disengagement changed at the same time that the accident rate changed.
+
+
+```{r t}
+safety_southfield %>% 
+  ggplot(aes(x = year, fill = factor(disengaged))) +
+  geom_bar(position = "fill")
+
+chisq.test(safety_southfield$year, safety_southfield$disengaged)
+```
+
+The result is significant at 0.05 level.
+
+
+We've found a difference in disengagement between the two years at Southfield, and no difference in overtime hours worked.
+
+We'll check the other locations too, to make sure those locations didn't also have a big change in disengagement. If the disengagement rate increased at the other locations where the accident rate did not change much, we'll have to doubt whether disengagement and accident rates are connected.
+
+```{r t9}
+other_locs <- safety %>% 
+  filter(location != "Southfield")
+t.test(overtime_hours ~ year, data = other_locs) 
+
+chisq.test(other_locs$year, other_locs$disengaged)
+```
+
+
+We can see that neither disangegement nor overtime hours changed significantly over years in other locations. We will test connection between disengagement and accident rates.
+
+We will use multiple regression to answer the executive's question: why did the accident rate increase?
+
+Is there a variable in our dataset that, when added into a multiple regression, can explain the difference in accident rates between the two years?
+
+Here, multiple regression can be used to test the impact of year and disengaged on accident rate in Southfield.
+
+```{r t7}
+regression <- glm(had_accident ~ year + disengaged, family = "binomial", data = safety_southfield)
+tidy(regression)
+```
+
+Employee disengagement can explain the difference in accident rates between years, but also more analysis is necessary.
+
