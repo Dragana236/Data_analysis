@@ -155,6 +155,10 @@ ggplot(cars, aes(x = dealer_cost, fill = all_wheel)) +
 ggplot(cars, aes(x = log(dealer_cost), fill = all_wheel)) +
   geom_density(alpha = .3)
 
+ggplot(cars, aes(x = dealer_cost, fill = all_wheel)) +
+  geom_density(alpha = .3) +
+  scale_x_log10()
+
 ggplot(cars, aes(x = all_wheel, y = dealer_cost)) +
   geom_boxplot() +
   coord_flip()
