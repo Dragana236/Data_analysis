@@ -60,6 +60,12 @@ table(gapminder$continent)
 ggplot(gapminder, aes(x = continent)) +
   geom_bar()
 
+gapminder %>%
+  group_by(continent) %>%
+  summarise(mean = mean(lifeExp)) %>%
+  ggplot(aes(x = continent, y = mean)) +
+  geom_col()
+
 # Faceting
 ggplot(gapminder, aes(x = continent)) + 
   geom_bar() +
